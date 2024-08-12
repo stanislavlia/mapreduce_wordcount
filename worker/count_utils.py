@@ -1,3 +1,8 @@
+
+import re
+from typing import List, Dict, Tuple
+
+
 def text_to_words(text):
     cleaned_text = re.sub(r'[^a-zA-Z0-9\s\n]', '', text)
     cleaned_text = cleaned_text.replace("\n", " ")
