@@ -1,5 +1,7 @@
 import httpx
 from fastapi import FastAPI, HTTPException
+from fastapi import UploadFile, File
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from typing import List, Dict, Tuple
 import json
@@ -9,14 +11,14 @@ from botocore.client import Config
 from pprint import pprint
 
 
-WORKERS_CLUSTER = ["http://0.0.0.0:8000",
-                   "http://0.0.0.0:8001",
-                   "http://0.0.0.0:8002"]
+WORKERS_CLUSTER = ["http://worker-1:8000",
+                   "http://worker-2:8000",
+                   "http://worker-3:8000"]
 
 
 minio_client = boto3.client(
     's3',
-    endpoint_url='http://localhost:9000',  
+    endpoint_url='http://minio:9000',  
     aws_access_key_id='your_username',      
     aws_secret_access_key='your_password',  
     config=Config(signature_version='s3v4'),
@@ -54,6 +56,8 @@ def get_json_from_s3(bucket_name, file_key, s3_client):
     except Exception as e:
         print(f"Error fetching the file: {e}")
         return None
+
+
 
 def submit_chunk_to_worker(text_chunk, task_name, worker_url):
 
@@ -122,15 +126,10 @@ def submit_to_reducers(grouped_results : Dict, url_generator):
     return counts
         
     
-    
-    
 def mapreduce_word_count(text : str, k=10):
     
-    
     url_generator = round_robin_url(WORKERS_CLUSTER)
-    
     map_tasks_results = []
-    
     
     chunks_of_text = split_text_to_chunks(text, n_chunks=k)
     print(f"Text splitted into {k} chunks...")
@@ -157,16 +156,28 @@ def mapreduce_word_count(text : str, k=10):
     
     return counts
     
-    
-    
-    
 
 
-if __name__ == "__main__":
-    
-    with open("tiny_shakespeare.txt", "r") as f:
-        TEXT = f.read()
+
+app = FastAPI()
+
+@app.post("/count_words")
+async def count_words(file: UploadFile = File(...), k: int = 10):
+    """
+    Endpoint to count words using MapReduce approach.
+    Accepts a .txt file and an optional parameter 'k' for the number of chunks.
+    """
+    try:
+        content = await file.read()
+        text = content.decode('utf-8')
         
-    pprint(mapreduce_word_count(text=TEXT, k=21))
+        counts = mapreduce_word_count(text=text, k=k)
+        
+        return JSONResponse(content={"counts": counts}, status_code=200)
+    
+    except Exception as e:
+        return JSONResponse(content={"error": str(e)}, status_code=500)
+
+
 
 
