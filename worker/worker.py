@@ -53,7 +53,13 @@ def map_task(request : MapTaskRequest):
     return {"status" : "done",
             "result_path" :  request.task_name + ".json",}
     
-    
+@app.post("/reduce_task")
+def reduce_task(request : ReduceTaskRequest):
+
+    result = {"word" : request.intermediate_data[0][0],
+              "count" : len(request.intermediate_data)}
+
+    return result
 
     
 if __name__ == "__main__":

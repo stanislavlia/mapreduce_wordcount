@@ -66,6 +66,16 @@ def submit_chunk_to_worker(text_chunk, task_name, worker_url):
         return response["result_path"]
 
 
+def round_robin_url(cluster : List):
+    
+    i = 0
+    
+    while True:
+        
+        url_to_return = cluster[i % len(cluster)]
+        i += 1
+        yield url_to_return
+
 def collect_all_result(object_names : List, s3_client, bucket_name="count-data"):
     
     results = []
@@ -86,27 +96,77 @@ def group_results(results : List):
     
     for key, val in results:
         if key in grouped_results:
-            grouped_results[key].append(val)
+            grouped_results[key].append((key, val))
         else:
-            grouped_results[key] = [val]
+            grouped_results[key] = [(key, val)]
             
     
     return grouped_results
 
 
+def submit_to_reducers(grouped_results : Dict, url_generator):
+    
+    counts = []
+    
+    for key in grouped_results.keys():
+        
+        worker_url = next(url_generator)
+        
+        reduced_result = httpx.post(worker_url + "/reduce_task",
+                                    json={"intermediate_data" : grouped_results[key]})
+        print("Reduce task submitted to worker: ", worker_url)
+        
+        reduced_result = reduced_result.json()
+        counts.append(reduced_result)
+    
+    return counts
+        
+    
+    
+    
+def mapreduce_word_count(text : str, k=10):
+    
+    
+    url_generator = round_robin_url(WORKERS_CLUSTER)
+    
+    map_tasks_results = []
+    
+    
+    chunks_of_text = split_text_to_chunks(text, n_chunks=k)
+    print(f"Text splitted into {k} chunks...")
+    
+    for i, chunk in enumerate(chunks_of_text):
+        
+        name = f"map_task_{i}"
+        worker_url = next(url_generator)
+        
+        path = submit_chunk_to_worker(text_chunk=chunk,
+                               task_name=name,
+                               worker_url=worker_url + "/map_task")
+        
+        print(f"Map task submitted to {worker_url}")
+        
+        map_tasks_results.append(path)
+    
+    print("Collect all results and group them...")
+    all_results = collect_all_result(map_tasks_results, minio_client)
+    
+    grouped_results = group_results(all_results)
+    
+    counts = submit_to_reducers(grouped_results, url_generator)
+    
+    return counts
+    
+    
+    
+    
 
 
-# result = submit_chunk_to_worker("Hello world my name is Stas! Hello Hello",
-#                                 "task_1_chunk", WORKERS_CLUSTER[0] + "/map_task")
+if __name__ == "__main__":
+    
+    with open("tiny_shakespeare.txt", "r") as f:
+        TEXT = f.read()
+        
+    pprint(mapreduce_word_count(text=TEXT, k=21))
 
-# result2 = submit_chunk_to_worker("Bye world my name is Stas! Bye Hello",
-#                                 "task_2_chunk", WORKERS_CLUSTER[1] + "/map_task")
 
-# result3 = submit_chunk_to_worker("Hello world my name is Stas! Hello Hello",
-#                                 "task_3_chunk", WORKERS_CLUSTER[2] + "/map_task")
-
-names = ["task_1_chunk.json", "task_1_chunk.json", "task_3_chunk.json"]
-
-results = collect_all_result(names, minio_client)
-
-pprint(group_results(results))
